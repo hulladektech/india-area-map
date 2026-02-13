@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import folium
-import geopandas as gpd
+import json
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 
+st.set_page_config(layout="wide")
 st.title("India Area Mapping Dashboard")
 
 # -----------------------------
@@ -13,18 +14,18 @@ st.title("India Area Mapping Dashboard")
 df = pd.read_excel("data.xlsx")
 
 # -----------------------------
-# Load District Boundary GeoJSON
+# Load GeoJSON (No GeoPandas)
 # -----------------------------
-districts = gpd.read_file("india_states.geojson")
-districts = districts.rename(columns={"dtname": "District"})
+with open("india_states.geojson", "r", encoding="utf-8") as f:
+    geo_data = json.load(f)
 
 # -----------------------------
 # Sidebar Filter
 # -----------------------------
-district_list = df["District"].unique()
+district_list = sorted(df["District"].unique())
 selected_district = st.sidebar.selectbox(
     "Select District",
-    ["All India"] + list(district_list)
+    ["All India"] + district_list
 )
 
 # -----------------------------
@@ -33,36 +34,35 @@ selected_district = st.sidebar.selectbox(
 if selected_district == "All India":
     m = folium.Map(location=[22.5937, 78.9629], zoom_start=5)
     filtered_df = df
-    filtered_boundary = None
 else:
     filtered_df = df[df["District"] == selected_district]
-    filtered_boundary = districts[districts["District"] == selected_district]
-
-    if not filtered_boundary.empty:
-        centroid = filtered_boundary.geometry.centroid.iloc[0]
-        m = folium.Map(location=[centroid.y, centroid.x], zoom_start=11)
-    else:
-        m = folium.Map(location=[22.5937, 78.9629], zoom_start=5)
+    m = folium.Map(location=[22.5937, 78.9629], zoom_start=6)
 
 # -----------------------------
-# Add Boundary (Only if selected)
+# Add Boundary Layer
 # -----------------------------
-if selected_district != "All India" and filtered_boundary is not None:
-    folium.GeoJson(
-        filtered_boundary,
-        style_function=lambda x: {
-            "fillColor": "#00000000",
-            "color": "blue",
-            "weight": 3
-        }
-    ).add_to(m)
+if selected_district != "All India":
+    filtered_features = [
+        feature for feature in geo_data["features"]
+        if feature["properties"].get("dtname") == selected_district
+    ]
+
+    if filtered_features:
+        folium.GeoJson(
+            {"type": "FeatureCollection", "features": filtered_features},
+            style_function=lambda x: {
+                "fillColor": "#00000000",
+                "color": "blue",
+                "weight": 3
+            }
+        ).add_to(m)
 
 # -----------------------------
-# Add Area Markers (All visible by default)
+# Add Area Markers
 # -----------------------------
 marker_cluster = MarkerCluster().add_to(m)
 
-for index, row in filtered_df.iterrows():
+for _, row in filtered_df.iterrows():
     folium.CircleMarker(
         location=[row["Latitude"], row["Longitude"]],
         radius=8,
@@ -78,6 +78,6 @@ for index, row in filtered_df.iterrows():
     ).add_to(marker_cluster)
 
 # -----------------------------
-# Show Map
+# Display Map
 # -----------------------------
 st_folium(m, width=1200, height=650)
